@@ -18,18 +18,58 @@
     <textarea id="message" rows="4"></textarea>
     <button type="submit">Разобрать заявку</button>
   </form>
-  <pre id="result" aria-live="polite"></pre>
+  <section id="result" aria-live="polite">
+    <p id="notice"></p>
+    <div id="ready" hidden>
+      <p><strong>Тема:</strong> <span id="topic"></span></p>
+      <p><strong>Черновик ответа</strong> (проверьте перед отправкой клиенту):</p>
+      <pre id="draft"></pre>
+    </div>
+  </section>
   <script type="module">
+    const TOPIC_LABELS = { delivery: "Доставка", pricing: "Цены и стоимость", other: "Другое" };
     const form = document.querySelector("form");
-    const result = document.querySelector("#result");
+    const button = form.querySelector("button");
+    const message = document.querySelector("#message");
+    const notice = document.querySelector("#notice");
+    const ready = document.querySelector("#ready");
+    const topic = document.querySelector("#topic");
+    const draft = document.querySelector("#draft");
+    let lastRequest = 0;
+
+    function show(text, result = null) {
+      notice.textContent = text;
+      // A previous draft must never stay on screen next to a new failure.
+      topic.textContent = result ? TOPIC_LABELS[result.topic] ?? result.topic : "";
+      draft.textContent = result ? result.draft : "";
+      ready.hidden = !result;
+    }
+
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const reply = await fetch("/api/triage", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: document.querySelector("#message").value }),
-      });
-      result.textContent = JSON.stringify(await reply.json(), null, 2);
+      if (message.value.trim() === "") {
+        show("Введите текст заявки.");
+        return;
+      }
+      const id = ++lastRequest;
+      show("Разбираю заявку…");
+      button.disabled = true;
+      let body = null;
+      try {
+        const reply = await fetch("/api/triage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: message.value }),
+        });
+        body = await reply.json();
+      } catch {
+        body = null;
+      }
+      if (id !== lastRequest) return; // a newer request owns the screen
+      button.disabled = false;
+      if (body?.status === "ready") show("", body);
+      else if (body?.status === "invalid_input") show("Введите текст заявки.");
+      else show("AI не смог разобрать эту заявку. Разберите её вручную: определите тему и напишите ответ сами.");
     });
   </script>
 </body>
